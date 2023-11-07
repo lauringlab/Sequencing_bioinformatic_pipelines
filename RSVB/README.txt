@@ -1,35 +1,19 @@
-README for RSVA Illumina Processing
+README for RSVB Illumina Processing 
 
-overview 
-- two step process to make and filter consensus sequence
-1. single .sh file that has several components
-	-- copies fastq files and removes lane info from file names (change_names_nextseq.py)
-	-- creates and submits a series of bash scripts (one for each sample) that trims adapters and primers, and uses IRMA to generate consensus sequences (IRMA_RSVA_batch_script.py)
-2. python script that concatenates and filters consensus sequence on completeness (filter_consensus.py)
+Overview
+- For processing RSVB sequences derived from overlapping (~400bp) amplicons and sequenced on an Illumina Nextseq. 
+- Primers are trimmed using primer sequences with cutadapt. Reads are aligned with BWA (gisaid reference EPI_ISL_1653999 -hRSV/B/Australia/VIC-RCH056/2019) and a consensus sequence is called using ivar.
+- 2 python scripts to copy (cp_fastq_files.py) and rename (change_names_nextseq.py) necessary fastq files 
+- Snakemake file that processes fastq files and creates consensus sequence
+
 
 Requirements
-- IRMA path needs to be in bash profile
-	-- export PATH=$PATH:/nfs/turbo/umms-alauring/shared_projects/IAV_illumina/flu-amd
-- Need to have biopython and pandas installed in python/3.9.1
+- Need to have snakmake installed
+- Need to have biopython and pandas installed in python/3.9.12
 
 Steps
-1. make a folder for each run inside RSVA_Illumina
-2. open (vi or nano) IRMA.sh and change run name info-  ("Sequencing plate")
-	- lines below are the ones that need changing
-		cd Sequencing_Plate
-		-s  nfs/turbo/umms-alauring/raw_data/2022/Sequencing_Plate 
-		--prefix Sequencing_Plate
-3. sh IRMA.sh
-4. Wait for all jobs to finish (there will be 96 jobs for a full plate)
-5. Change --prefix to correct run name and copy and paste into the terminal
+1. Make a folder for each sequencing plate inside RSVB_Illumina
+2. Add barcode map to plate folder. Barcode map is a 2 column csv file with "Processing_Plate,sample_name" as the header
+3. sbatch RSVB_Illumina_nextseq.sh "sequencing run name" "plate name"
 
-"""
-python IRMA_filter_consensus_coverage.py \
-
-    --prefix 20210712_Nanopore_Run_33 \
-    
-    --mode test \
-   
-    --min 13763
-
-"""
+ 
