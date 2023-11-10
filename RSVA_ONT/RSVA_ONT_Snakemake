@@ -1,0 +1,135 @@
+	
+# ============================= How to run this pipeline ==========================
+
+
+
+# 1. Modify the parameters below as needed ("rule parameters").
+# 2. Load modules: module load Bioinformatics cutadapt minimap2 samtools htslib/1.9-pcw6wxv ivar python/3.9.12 #medaka
+# 3. Activate snakemake: conda activate snakemake
+# 4. Run job on Slurm: sbatch submit_variants.sbat -- Or run directly: snakemake -s Snakefile-var -p --latency-wait 30 --cores 2
+
+
+# ============================= Configure run options here =============================
+
+SAMPLES, = glob_wildcards('data/fastq/{sample}.fastq.gz')
+
+
+rule all:
+	input:
+		expand ( "data/ivar_consensus/{sample}.fa", sample=SAMPLES),
+		expand ("data/coverage/{sample}.coverage.csv", sample=SAMPLES),
+		config["run_name"]+".full.consensus.fasta"
+rule parameters: 
+	params:
+		min_amplicon_length = 350, # minimum length to keep during amplicon filtering
+		max_amplicon_length  = 850, # maximum length to keep during amplicon filtering
+		min_qual_score = 0, 
+		Fprimer = "../primer_scheme/V2.1/RSVA_Left_primer.fasta",
+		Rprimer= "../primer_scheme/V2.1/RSVA_Right_primer.fasta",
+		reference_fasta = '../references/EPI_ISL_412866.fasta', # fasta used for alignment
+		min_depth= 20,
+		min_length = 13702, ## minimum consensus sequence length to pass filtering
+         
+setup = rules.parameters.params
+    
+# ============================= Here are the pipeline rules =============================
+
+rule chopper:
+	message:
+		'''
+		=======================================================
+		filter by length 
+		=======================================================
+		'''
+	input:'data/fastq/{sample}.fastq.gz',
+	output: 'data/filtered_reads/{sample}.filteredreads.fastq.gz'
+	shell:
+		"""
+		gunzip -c {input} | chopper  --minlength  {setup.min_amplicon_length} \
+		 --maxlength {setup.max_amplicon_length}| gzip > {output}
+		 """
+
+rule cutadapt:
+	message:
+		"""
+		=======================================================
+		Trim Primers- cutadapt
+		=======================================================
+		"""
+	input: 'data/fastq/{sample}.fastq.gz'
+	output: 'data/primer_trimmed/{sample}.primertrimmed.fastq'
+	shell:
+		"""
+		cutadapt -a "file:{setup.Fprimer}" -g "file:{setup.Rprimer}" -o {output} {input} 
+		"""
+
+
+rule minimap:
+	message:
+		"""
+		=======================================================
+		Use minimap to align reads
+		=======================================================
+		"""
+	input:'data/primer_trimmed/{sample}.primertrimmed.fastq'
+	output: 'data/aligned/{sample}.sam'
+	shell:  'minimap2 -ax sr {setup.reference_fasta} {input} >{output}' 
+
+
+rule sort_to_bam:
+	message:
+		"""
+		=======================================================
+		Sort SAM and convert to BAM 
+		=======================================================
+		"""
+	input:'data/aligned/{sample}.sam'
+	output:'data/aligned/{sample}.bam',
+	shell: 'samtools sort -o {output} {input}'
+
+rule get_coverage:
+	message:
+		"""
+		=======================================================
+		Get coverage with samtools
+		=======================================================
+		"""
+	input:'data/aligned/{sample}.bam'
+	output:"data/coverage/{sample}.coverage.csv"
+	shell:
+		"samtools depth -a -d 100000 {input} > {output}"
+
+
+rule get_consensus:
+	message:
+		"""
+		=======================================================
+		Get the consensus sequence with iVar
+		=======================================================
+		"""
+	input:
+		bam_file = 'data/aligned/{sample}.bam'
+	output:
+		consensus_file = "data/ivar_consensus/{sample}.fa"
+	shell:
+		"samtools mpileup -a -A -d 100000  -Q 0 --reference {setup.reference_fasta} {input.bam_file} | ivar consensus -p {output.consensus_file} -n N -q {setup.min_qual_score}  -m {setup.min_depth}"
+
+
+rule combine_and_export:
+	message:
+		"""
+		=======================================================
+		Combine into a single fasta and coverage file
+		 =======================================================
+		"""
+	input:
+		consensus_files = expand ("data/ivar_consensus/{sample}.fa", sample = SAMPLES),
+		coverage_files = expand ("data/coverage/{sample}.coverage.csv", sample =SAMPLES)
+	output:
+		config["run_name"]+".90.consensus.fasta",
+		config["run_name"]+".full.consensus.fasta",
+		config["run_name"]+".coverage.csv"
+	params:
+		config["run_name"]
+	shell:
+		"python ../ivar_CombineAndExport.py --run-name {params} --min-length {setup.min_length}"
